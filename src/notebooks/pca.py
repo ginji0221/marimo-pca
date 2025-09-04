@@ -117,6 +117,8 @@ def _(
     target,
     unique_target,
 ):
+    # ===== 1章 =====
+
     # スイッチによるディメンション, ターゲットの選択
     _dimensions_selected = dimensions[switches_dimension.value]
     _target_selected = unique_target[switches_target.value]
@@ -240,6 +242,8 @@ def _(
     switch_standardize,
     target,
 ):
+    # ===== 2章 =====
+
     # ドロップダウンによるディメンション, ターゲットの選択
     if dropdown_2d_dimension_01.value != dropdown_2d_dimension_02.value:
         # stateの設定
@@ -357,21 +361,23 @@ def _(
     switch_show_vector_a,
     switch_show_vector_b,
 ):
+    # ===== 3章 =====
+
     # グローバル変数の追加
-    r = slider_corr.value # 相関係数
-    R = np.array([[1, r], [r, 1]]) # 相関係数行列
-    eigen_val, eigen_vec = np.linalg.eig(R) # 固有値, 固有ベクトル
+    _r = slider_corr.value # 相関係数
+    _R = np.array([[1, _r], [_r, 1]]) # 相関係数行列
+    _eigen_val, _eigen_vec = np.linalg.eig(_R) # 固有値, 固有ベクトル
 
     # グラフ作成
     # --- 主成分スコアの分散の関数 ---
     _a1 = np.linspace(-2, 2, 200)
     _a2 = np.linspace(-2, 2, 200)
     _a1, _a2 = np.meshgrid(_a1, _a2)
-    _Vz1 = _a1 ** 2 + _a2 ** 2 + 2 * r * _a1 * _a2
+    _Vz1 = _a1 ** 2 + _a2 ** 2 + 2 * _r * _a1 * _a2
 
 
-    _a1_vec, _a2_vec = eigen_vec.T[0]
-    _b1_vec, _b2_vec = eigen_vec.T[1]
+    _a1_vec, _a2_vec = _eigen_vec.T[0]
+    _b1_vec, _b2_vec = _eigen_vec.T[1]
 
     _fig = go.Figure(
         data=[
@@ -518,22 +524,15 @@ def _(
     )
 
     # var_func_component
-    return eigen_val, eigen_vec, var_func_component
+    return (var_func_component,)
 
 
 @app.cell
-def _(
-    data_2d,
-    eigen_vec,
-    make_subplots,
-    mo,
-    np,
-    pd,
-    px,
-    target,
-    var_func_component,
-):
+def _(data_2d, make_subplots, mo, np, pd, px, target, var_func_component):
     # 主成分スコアの計算
+    _R = data_2d.corr().values
+    eigen_val, eigen_vec = np.linalg.eig(_R)
+
     _data_transformed_dim_02 = np.dot(data_2d.values, eigen_vec)
     _data_transformed_dim_01 = _data_transformed_dim_02[:, [0]]
     _zeros_col = np.zeros((_data_transformed_dim_02.shape[0], 1))
@@ -676,11 +675,13 @@ def _(
     )
 
     # maximize_var_component
-    return (maximize_var_component,)
+    return eigen_val, eigen_vec, maximize_var_component
 
 
 @app.cell
 def _(eigen_val, mo, np, pd, px):
+    # ===== 4章 =====
+
     _df_evr = pd.DataFrame({
         "Principal Component": ["PC1", "PC2"],
         "Explained Variance Ratio": [
@@ -738,6 +739,8 @@ def _(eigen_val, mo, np, pd, px):
 
 @app.cell
 def _(eigen_val, eigen_vec, mo, np, pd, px):
+    # ===== 5章 =====
+
     # 因子負荷量の計算
     _r_z1x1 = np.sqrt(eigen_val[0]) * eigen_vec.T[0][0]
     _r_z1x2 = np.sqrt(eigen_val[0]) * eigen_vec.T[0][1]
@@ -805,6 +808,196 @@ def _(eigen_val, eigen_vec, mo, np, pd, px):
 
 
 @app.cell
+def _(data, dimensions, mo, np, pd, px, scaler, target):
+    # ===== 6章 =====
+
+    # 使用するデータ (4次元すべて使用)
+    _data = data
+    _target = target
+    _dimensions = dimensions
+
+    # 標準化
+    _data_scale = pd.DataFrame(
+        data=scaler.fit_transform(_data),
+        columns=_dimensions,
+    )
+
+    # 相関係数行列
+    _df_R = _data_scale.corr()
+    _R = _df_R.values
+
+    # 固有値、固有ベクトル
+    _eigen_val, _eigen_vec = np.linalg.eig(_R)
+
+    # 主成分スコア
+    _data_transformed = np.dot(_data_scale.values, _eigen_vec)
+    _df_data_transformed = pd.DataFrame(
+        data=_data_transformed,
+        columns=[f"z<sub>{_i+1}</sub>" for _i in range(_data_transformed.shape[1])]
+    )
+
+    # 寄与率の計算
+    _evr = _eigen_val / np.sum(_eigen_val)
+    _df_evr = pd.DataFrame(
+        {
+            "Principal Component": [f"PC{_i+1}" for _i in range(len(_evr))],
+            "Explained Variance Ratio": _evr,
+        }
+    )
+
+    # 因子負荷量の計算
+    _factor_loading_matrix = np.dot(
+        np.diag(np.sqrt(_eigen_val)),
+        _eigen_vec.T
+    )
+
+    _dict_factor_loading = {
+        "Principal Component": [],
+        "Feature": [],
+        "Factor Loading": []
+    }
+    for _z_idx in range(len(_eigen_val)):
+        for _x_idx in range(len(_dimensions)):
+            _dict_factor_loading["Principal Component"].append(f"PC{_z_idx+1}")
+            _dict_factor_loading["Feature"].append(f"x{_x_idx+1}")
+            _dict_factor_loading["Factor Loading"].append(_factor_loading_matrix[_z_idx][_x_idx])
+    _df_factor_loading = pd.DataFrame(_dict_factor_loading)
+
+    # グラフ化
+
+    # データセットの可視化
+    _fig_dataset = px.scatter_matrix(
+        _data_scale,
+        dimensions=_dimensions,
+        color=_target,
+        template="plotly_dark",
+        opacity=0.5,
+    )
+
+    _fig_dataset.update_layout(
+        legend_title_text="Species"
+    )
+
+    _colors = [trace.marker.color for trace in _fig_dataset.data]
+    for _i, _trace in enumerate(_fig_dataset.data):
+        _trace.marker.line.color = "black"
+        _trace.marker.line.width = 1
+        _trace.marker.size = 4.5
+
+    _dataset_component = mo.vstack(
+        [
+            mo.md("### データセット (標準化済み)"),
+            mo.hstack(
+                [_data_scale, _fig_dataset],
+                gap=1,
+                widths=[1, 2]
+            )
+        ],
+        gap=1,
+    )
+
+    # 主成分スコアの可視化
+    _fig_data_transformed = px.scatter_matrix(
+        _df_data_transformed,
+        dimensions=[f"z<sub>{_i+1}</sub>" for _i in range(_data_transformed.shape[1])],
+        color=_target,
+        template="plotly_dark",
+        opacity=0.5,
+    )
+
+    _fig_data_transformed.update_layout(
+        legend_title_text="Species"
+    )
+
+    _colors = [trace.marker.color for trace in _fig_data_transformed.data]
+    for _i, _trace in enumerate(_fig_data_transformed.data):
+        _trace.marker.line.color = "black"
+        _trace.marker.line.width = 1
+        _trace.marker.size = 4.5
+
+    _data_transformed_component = mo.vstack(
+        [
+            mo.md("### 主成分スコア"),
+            mo.hstack(
+                [_df_data_transformed, _fig_data_transformed],
+                gap=1,
+                widths=[1, 2]
+            )
+        ],
+        gap=1,
+    )
+
+    # 寄与率の可視化
+    _fig_evr = px.bar(
+        _df_evr,
+        x="Principal Component",
+        y="Explained Variance Ratio",
+        title="Explained Variance Ratio by Principal Component",
+    )
+
+    _fig_evr.update_layout(
+        bargap=0.5,         # 棒と棒の間の間隔（0〜1）
+        bargroupgap=0.0      # グループ間の間隔（0で密着）
+    )
+
+    _evr_component = mo.vstack(
+        [
+            mo.md("### 寄与率の可視化"),
+            mo.hstack([_df_evr, _fig_evr], gap=1, widths=[1, 2]),
+        ],
+        gap=1
+    )
+
+    # 因子負荷量の可視化
+    _fig_factor_loading = px.bar(
+        _df_factor_loading,
+        x="Principal Component",
+        y="Factor Loading",
+        color="Feature",
+        barmode="group",     # 横に並べる
+        height=400,
+        title="Factor Loadings by Feature and Principal Component"
+    )
+
+
+    _fig_factor_loading.update_layout(
+        bargap=0.5,         # 棒と棒の間の間隔（0〜1）
+        bargroupgap=0.0      # グループ間の間隔（0で密着）
+    )
+
+    _factor_loading_component = mo.vstack(
+        [
+            mo.md("### 因子負荷量の可視化"),
+            mo.hstack([_df_factor_loading, _fig_factor_loading], gap=1, widths=[1, 2]),
+        ],
+        gap=1
+    )
+
+    _subtitle = mo.md(
+        """
+        ## 6. アヤメデータセットに関する主成分分析
+
+        最後に、アヤメのデータセットに含まれる、すべての特徴を使用して主成分分析を実施する。  
+        2次元での分析と同様の可視化を行い、結果を下記に示す。
+        """
+    )
+
+    pca_iris_component = mo.vstack(
+        [
+            _subtitle,
+            _dataset_component,
+            _data_transformed_component,
+            _evr_component,
+            _factor_loading_component,
+        ],
+        gap=3
+    )
+
+    # pca_iris_component
+    return (pca_iris_component,)
+
+
+@app.cell
 def _(
     evr_component,
     factor_loading_component,
@@ -812,6 +1005,7 @@ def _(
     maximize_var_component,
     mo,
     page_title,
+    pca_iris_component,
     standardize_component,
 ):
     # コンポーネントの連結
@@ -823,9 +1017,15 @@ def _(
             maximize_var_component,
             evr_component,
             factor_loading_component,
+            pca_iris_component,
         ],
         gap=5
     )
+    return
+
+
+@app.cell
+def _():
     return
 
 
